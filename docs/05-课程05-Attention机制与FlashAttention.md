@@ -214,6 +214,10 @@ Flash: 分块在 SRAM 上算 softmax/规约，减少大矩阵 materialize
 ## 小结
 
 - **Triton `store_kvcache_kernel`**：按 **token 并行** 把 K/V **scatter** 到 **slot 对齐** 的物理 cache。
+Triton 有两个核心形态，在大模型推理中扮演不同关键角色，先给结论：
+OpenAI Triton：Pythonic GPU 编程语言 + 编译器，降低高性能算子开发门槛，是 vLLM 等推理框架的核心优化引擎
+NVIDIA Triton Inference Server（现名 Dynamo-Triton）：生产级推理服务平台，负责模型部署、调度与规模化
+
 - **Prefill**：**`flash_attn_varlen_func`** 处理 **变长 batch**，支持 **`block_table`**；若 **已有前缀在 cache**，走 **`k,v = k_cache,v_cache`** 的 **prefix** 优化。
 - **Decode**：**`flash_attn_with_kvcache`** 专注 **单步续写** 与 **KV 复用**。
 - **FlashAttention**：从 **算法+IO** 两侧优化长序列注意力，是 **推理引擎** 与 **面试** 的双重高频点。
