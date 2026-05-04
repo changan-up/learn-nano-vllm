@@ -203,6 +203,109 @@ def allocate_kv_cache(self):
 
 （若从维度上理解：`self.kv_cache` 第一维 2 为 K/V；第二维为 layer；块在第三、四维。`block_bytes` 把「一层一块」扩展为「所有层同一 block_id 的总占用」，与 `empty` 形状一致。）
 
+**逐字、逐参数、结合张量并行**，把 `block_bytes` 的含义、公式原理、TP 适配逻辑**彻底讲透**，这是 LLM 推理 **PagedAttention 显存计算**的最核心公式，没有之一。
+
+## 一、block_bytes 核心定义（必背）
+`block_bytes` =
+**单个 KV Cache Block 在 【单块 + 单层 + 单张量并行rank】 下，存储 K 和 V 所需的总显存字节数**
+
+关键词拆解：
+1. **单块**：1 个固定大小的 KV 块（`block_size` 个 token，如 256）
+2. **单层**：1 层 Transformer 层的 K、V 张量
+3. **单 rank**：张量并行（TP）拆分后，**当前 GPU 分片**的 KV 数据
+4. **KV 双线**：同时存储 Key 和 Value 两个张量（公式里的 `*2`）
+
+---
+
+## 二、公式逐参数精准解读
+## 原始公式
+block_bytes = 2 * num_layers * block_size * num_kv_heads * head_dim * itemsize
+
+
+| 参数 | 含义 | 对应你的描述 | 核心解释 |
+|------|------|--------------|----------|
+| **2** | KV 双线 | 单块、单层、单rank的KV双线 | 同时存储 **Key + Value** 两个张量，固定 ×2 |
+| num_layers | Transformer 总层数 | 单层计算基数 | 每一层都有独立的 K/V，必须乘总层数 |
+| block_size | 单个 KV 块存储的 Token 数 | 单块 | 硬件对齐的固定值（如 256），1 块存这么多 token 的 KV |
+| num_kv_heads | **TP 分片后的 KV 头数** | 单rank | 张量并行后，当前 GPU 只负责的 KV 头数量 |
+| head_dim | 单个 KV 头的维度 | 头维度 | 如 Llama 系列固定为 128 |
+| itemsize | 单个数值的字节数 | 数据类型 | FP16/BF16=2，FP8=1，INT4=0.5 |
+
+---
+
+# 三、张量并行（TP）如何融入公式？（核心重点）
+你提到的关键规则：
+> **每 rank 只存 本分片 的 KV 头：num_kv_heads // world_size**
+> 代码变量名 `num_kv_heads` 已除过
+
+这是 **张量并行无缝适配公式** 的核心设计：
+
+### 1. 张量并行的 KV 头拆分规则
+- 模型**总 KV 头数**：`total_kv_heads`
+- TP 并行 GPU 数量：`world_size`
+- **单 GPU (rank) 负责的 KV 头数**：
+  ```python
+  num_kv_heads = total_kv_heads // world_size
+  ```
+
+### 2. 公式天然支持 TP，无需修改
+代码中 `num_kv_heads` 已经是**分片后的值**，所以：
+- TP=1（单卡）：`num_kv_heads = 总KV头数`
+- TP=2（双卡）：`num_kv_heads = 总KV头数 / 2`
+- TP=4（四卡）：`num_kv_heads = 总KV头数 / 4`
+
+✅ **结论**：
+公式不需要任何调整，`num_kv_heads` 变量本身就包含了张量并行的分片逻辑，自动计算**单 rank 的 KV 块显存**。
+
+---
+
+# 四、实战计算示例（一眼看懂）
+## 场景：Llama-2-7B
+- 总层数：`num_layers = 32`
+- KV 块大小：`block_size = 256`
+- 总 KV 头数：`32`
+- 头维度：`head_dim = 128`
+- 精度：FP16（`itemsize=2`）
+
+### 情况1：单卡 TP=1
+```python
+num_kv_heads = 32 // 1 = 32
+block_bytes = 2 * 32 * 256 * 32 * 128 * 2
+= 13,421,776 字节 ≈ 12.8 MB
+```
+→ **单块、单层、单rank 占 12.8MB**
+
+### 情况2：双卡 TP=2
+```python
+num_kv_heads = 32 // 2 = 16
+block_bytes = 2 * 32 * 256 * 16 * 128 * 2
+= 6,710,888 字节 ≈ 6.4 MB
+```
+→ **单卡显存减半，总显存不变，完美分片**
+
+---
+
+# 五、这个值的核心作用（关联你之前的显存调度）
+1. 算出 `block_bytes` 后，用**可分配显存余量 ÷ block_bytes**
+   → 得到当前 GPU 还能创建多少个 KV 块
+2. 框架根据这个数字，决定**能接收多少用户请求、最大并发 batch**
+3. 是 **PagedAttention 显存调度、防 OOM** 的核心计算依据
+
+---
+
+# 六、终极总结
+1. **block_bytes**：1 个 KV 块、1 层 Transformer、1 个 TP rank 的 **KV 双线显存字节数**
+2. 公式 `*2` = 存储 Key + Value
+3. **张量并行**：代码中 `num_kv_heads` 已提前除以 `world_size`，公式自动适配分片
+4. 用途：计算可用 KV 块数量，支撑 LLM 推理的显存调度
+
+
+
+
+
+
+
+
 ### 六维张量 `self.kv_cache` 形状解析
 
 ```text
