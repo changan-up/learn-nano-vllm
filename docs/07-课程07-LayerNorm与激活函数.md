@@ -223,7 +223,7 @@ else:
 
 ## 小结
 
-RMSNorm 用 RMS 缩放替代 LN 的去中心+方差缩放，计算更轻；`rsqrt` 与 fp32 统计是稳定混合精度的习惯写法；`add_rms_forward` 把「加残差 + 归一化」捆在一起减少中间张量；`SiluAndMul` 完成 SwiGLU 的门控乘。`torch.compile` 适合这类高频小模块，但要在工程上实测编译时间与形状稳定性。
+**RMSNorm 用 RMS 缩放替代 LN 的去中心+方差缩放，计算更轻**；`rsqrt` 与 fp32 统计是稳定混合精度的习惯写法；`add_rms_forward` **把「加残差 + 归一化」捆在一起减少中间张量**；`SiluAndMul` 完成 SwiGLU 的门控乘。`torch.compile` 适合这类高频小模块，但要在工程上实测编译时间与形状稳定性。
 
 ## 下一课预告
 
