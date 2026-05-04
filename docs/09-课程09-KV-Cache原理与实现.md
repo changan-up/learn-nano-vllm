@@ -154,7 +154,7 @@ def allocate_kv_cache(self):
 
 ---
 
-# 四、举个栗例子
+# 四、举个例子
 已知：
 - 显卡总显存 `total = 24GB`
 - 显存利用率 `gpu_memory_utilization = 0.9` → 允许上限 `21.6GB`
