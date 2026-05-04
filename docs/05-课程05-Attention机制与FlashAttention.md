@@ -197,17 +197,18 @@ Flash: 分块在 SRAM 上算 softmax/规约，减少大矩阵 materialize
 
 1. **Prefill 为什么可能是 compute-bound？**  
    答：**prompt 长、矩阵大**，GEMM 与注意力 **FLOPs 高**；FlashAttention 降低 IO 后仍可能吃满算力。
+   GEMM = General Matrix Multiplication 通用矩阵乘法
 
-2. **Decode 为什么更 memory-bound？**  
+3. **Decode 为什么更 memory-bound？**  
    答：每步 **有效计算小**，**读 KV**、**写 KV**、kernel 启动占比高。
 
-3. **没有 Triton store，只用 PyTorch 索引写 cache 可以吗？**  
+4. **没有 Triton store，只用 PyTorch 索引写 cache 可以吗？**  
    答：可以但 **慢**；自定义内核 **融合写**、**stride 可控**，利于 **Paged** 布局。
 
-4. **`block_table` 在两层 API 里分别起什么作用？**  
+5. **`block_table` 在两层 API 里分别起什么作用？**  
    答：把 **逻辑序列位置** 映射到 **物理块**，使 **KV 非连续存储** 仍能被 FlashAttention 内核寻址。
 
-5. **GQA（num_kv_heads < num_heads）在哪体现？**  
+6. **GQA（num_kv_heads < num_heads）在哪体现？**  
    答：在 **Qwen3/Linear 投影** 与 **flash-attn** 的 head 布局中；本文件 **Attention** 接收的 **k,v** 已按模型实现。
 
 ## 小结
